@@ -6,6 +6,7 @@ class Reagent:
     __slots__ = [
         "reagent_name",
         "smiles",
+        "num_props",
         "min_uncertainty",
         "initial_scores",
         "mol",
@@ -15,22 +16,24 @@ class Reagent:
         "current_phase"
     ]
 
-    def __init__(self, reagent_name: str, smiles: str):
+    def __init__(self, reagent_name: str, smiles: str, num_props: int = 1):
         """
         Basic init
         :param reagent_name: Reagent name
         :param smiles: smiles string
+        :param num_props: number of properties being optimized
         """
         self.smiles = smiles
         self.reagent_name = reagent_name
+        self.num_props = num_props
         self.mol = Chem.MolFromSmiles(self.smiles)
         self.initial_scores = []
         self.known_var = None  # Will be initialized during init_given_prior
         self.current_phase = "warmup"
-        self.current_mean = 0
-        self.current_std = 0
+        self.current_mean = np.zeros(num_props)
+        self.current_std = np.zeros(num_props)
 
-    def add_score(self, score: float):
+    def add_score(self, score: list[float]) -> None:
         """
         Either adds a score to self.initial_scores if self._current_phase == "warmup", otherwise, does the bayesian
         update of the mean and standard deviation.
@@ -48,16 +51,16 @@ class Reagent:
             raise ValueError(f"self.current_phase should be warmup or search, found {self.current_phase}")
         return
 
-    def sample(self) -> float:
+    def sample(self) -> list[float]:
         """
         Takes a random sample from the prior distribution
         :return: sample from the prior distribution
         """
         if self.current_phase != "search":
             raise ValueError(f"Must call Reagent.init() before sampling")
-        return np.random.normal(loc=self.current_mean, scale=self.current_std)
+        return [np.random.normal(loc=self.current_mean[i], scale=self.current_std[i]) for i in range(self.num_props)]
 
-    def init_given_prior(self, prior_mean: float, prior_std: float):
+    def init_given_prior(self, prior_mean: list[float], prior_std: list[float]) -> None:
         """
         After warmup, set the prior distribution from the given parameters and replay the warmup scores.
 
@@ -88,7 +91,7 @@ class Reagent:
         for score in self.initial_scores:
             self.add_score(score)
 
-    def _update_mean(self, current_var: float, observed_value: float) -> float:
+    def _update_mean(self, current_var: list[float], observed_value: list[float]) -> list[float]:
         """
         Bayesian update to the mean
         :param current_var: The current variance
@@ -99,7 +102,7 @@ class Reagent:
         denominator = current_var + self.known_var
         return numerator / denominator
 
-    def _update_std(self, current_var: float) -> float:
+    def _update_std(self, current_var: list[float]) -> list[float]:
         """
         Bayesian update to the standard deviation
         :param current_var: The current variance
